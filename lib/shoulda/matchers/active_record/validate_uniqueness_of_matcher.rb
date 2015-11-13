@@ -318,43 +318,8 @@ module Shoulda
           end
         end
 
-        def validation
-          @subject.class._validators[@attribute].detect do |validator|
-            validator.is_a?(::ActiveRecord::Validations::UniquenessValidator)
-          end
-        end
-
         def scopes_match?
-          if expected_scopes == actual_scopes
-            true
-          else
-            @failure_message = scopes_failure_message
-            false
-          end
-        end
-
-        def expected_scopes
-          Array.wrap(@options[:scopes])
-        end
-
-        def actual_scopes
-          if validation
-            Array.wrap(validation.options[:scope])
-          else
-            []
-          end
-        end
-
-        def scopes_failure_message
-          message = "Expected validation to be scoped to " +
-            "#{expected_scopes}"
-
-          message <<
-            if actual_scopes.present?
-              ", but it was scoped to #{actual_scopes}."
-            else
-              ", but it was not scoped to anything."
-            end
+          return ScopeMatchChecker.new(@attribute).valid?(@subject, @options[:scopes], @failure_message)
         end
 
         def allows_nil?
@@ -662,6 +627,52 @@ http://matchers.shoulda.io/docs/v#{Shoulda::Matchers::VERSION}/file.NonCaseSwapp
               attribute: @attribute,
               value: @existing_value
             )
+          end
+        end
+
+        class ScopeMatchChecker < ActiveModel::ValidationMatcher
+          def initialize(attribute)
+            super(attribute)
+          end
+
+          def valid?(subject, expected_scopes, failure_message)
+            @subject = subject
+            @expected_scopes = Array.wrap(expected_scopes)
+            @failure_message = failure_message
+
+            if expected_scopes == actual_scopes
+              true
+            else
+              set_failure_message
+              false
+            end
+          end
+
+          private def expected_scopes
+            @expected_scopes
+          end
+
+          private def actual_scopes
+            return [] unless validation
+            Array.wrap(validation.options[:scope])
+          end
+
+          def validation
+            @subject.class._validators[@attribute].detect do |validator|
+              validator.is_a?(::ActiveRecord::Validations::UniquenessValidator)
+            end
+          end
+
+          private def set_failure_message
+            @failure_message = "Expected validation to be scoped to " +
+              "#{expected_scopes}"
+
+            @failure_message <<
+              if actual_scopes.present?
+                ", but it was scoped to #{actual_scopes}."
+              else
+                ", but it was not scoped to anything."
+              end
           end
         end
       end
