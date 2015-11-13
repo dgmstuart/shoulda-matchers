@@ -455,32 +455,7 @@ module Shoulda
         end
 
         def validate_case_sensitivity?
-          return true unless existing_value.respond_to?(:swapcase)
-
-          case @options[:case]
-          when :insensitive
-            validate_case_insensitive?
-          when :sensitive
-            validate_case_sensitive?
-          else
-            true
-          end
-        end
-
-        def validate_case_insensitive?
-          disallows_value_of(existing_value.swapcase, @expected_message)
-        end
-
-        def validate_case_sensitive?
-          if existing_value == existing_value.swapcase
-            fail NonCaseSwappableValueError.create(
-              model: @subject.class,
-              attribute: @attribute,
-              value: existing_value
-            )
-          end
-
-          allows_value_of(existing_value.swapcase, @expected_message)
+          CaseSensitivityChecker.new(@attribute).valid?(@subject, existing_value, @expected_message, @options[:case])
         end
 
         def create_record_with_value
@@ -638,6 +613,55 @@ For more information, please see:
 
 http://matchers.shoulda.io/docs/v#{Shoulda::Matchers::VERSION}/file.NonCaseSwappableValueError.html
             MESSAGE
+          end
+        end
+
+
+        class CaseSensitivityChecker < ActiveModel::ValidationMatcher
+          def initialize(attribute)
+            super(attribute)
+          end
+
+          def valid?(subject, existing_value, expected_message, case_check)
+            @subject = subject
+            @expected_message = expected_message
+            @existing_value = existing_value
+
+            return true unless @existing_value.respond_to?(:swapcase)
+
+            case case_check
+            when :insensitive
+              validate_case_insensitive?
+            when :sensitive
+              validate_case_sensitive?
+            else
+              true
+            end
+          end
+
+          private def converting_values(value_conversions)
+            super
+          end
+
+          private def validate_case_insensitive?
+            disallows_value_of(@existing_value.swapcase, @expected_message)
+          end
+
+          private def validate_case_sensitive?
+            fail non_case_swappable_error unless case_swappable?
+            allows_value_of(@existing_value.swapcase, @expected_message)
+          end
+
+          private def case_swappable?
+            @existing_value != @existing_value.swapcase
+          end
+
+          private def non_case_swappable_error
+            NonCaseSwappableValueError.create(
+              model: @subject.class,
+              attribute: @attribute,
+              value: @existing_value
+            )
           end
         end
       end
