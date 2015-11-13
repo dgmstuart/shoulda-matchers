@@ -325,28 +325,36 @@ module Shoulda
         end
 
         def scopes_match?
-          expected_scopes = Array.wrap(@options[:scopes])
-
-          if validation
-            actual_scopes = Array.wrap(validation.options[:scope])
-          else
-            actual_scopes = []
-          end
-
           if expected_scopes == actual_scopes
             true
           else
-            @failure_message = "Expected validation to be scoped to " +
-              "#{expected_scopes}"
-
-            if actual_scopes.present?
-              @failure_message << ", but it was scoped to #{actual_scopes}."
-            else
-              @failure_message << ", but it was not scoped to anything."
-            end
-
+            @failure_message = scopes_failure_message
             false
           end
+        end
+
+        def expected_scopes
+          Array.wrap(@options[:scopes])
+        end
+
+        def actual_scopes
+          if validation
+            Array.wrap(validation.options[:scope])
+          else
+            []
+          end
+        end
+
+        def scopes_failure_message
+          message = "Expected validation to be scoped to " +
+            "#{expected_scopes}"
+
+          message <<
+            if actual_scopes.present?
+              ", but it was scoped to #{actual_scopes}."
+            else
+              ", but it was not scoped to anything."
+            end
         end
 
         def allows_nil?
@@ -424,19 +432,16 @@ module Shoulda
         end
 
         def set_scoped_attributes
-          if @options[:scopes].present?
-            @options[:scopes].all? do |scope|
-              setter = :"#{scope}="
-              if @subject.respond_to?(setter)
-                @subject.__send__(setter, existing_record.__send__(scope))
-                true
-              else
-                @failure_message = "#{class_name} doesn't seem to have a #{scope} attribute."
-                false
-              end
+          return true unless @options[:scopes].present?
+          @options[:scopes].all? do |scope|
+            setter = :"#{scope}="
+            if @subject.respond_to?(setter)
+              @subject.__send__(setter, existing_record.__send__(scope))
+              true
+            else
+              @failure_message = "#{class_name} doesn't seem to have a #{scope} attribute."
+              false
             end
-          else
-            true
           end
         end
 
@@ -450,30 +455,32 @@ module Shoulda
         end
 
         def validate_case_sensitivity?
-          value = existing_value
+          return true unless existing_value.respond_to?(:swapcase)
 
-          if value.respond_to?(:swapcase)
-            swapcased_value = value.swapcase
-
-            case @options[:case]
-            when :insensitive
-              disallows_value_of(swapcased_value, @expected_message)
-            when :sensitive
-              if value == swapcased_value
-                raise NonCaseSwappableValueError.create(
-                  model: @subject.class,
-                  attribute: @attribute,
-                  value: value
-                )
-              end
-
-              allows_value_of(swapcased_value, @expected_message)
-            else
-              true
-            end
+          case @options[:case]
+          when :insensitive
+            validate_case_insensitive?
+          when :sensitive
+            validate_case_sensitive?
           else
             true
           end
+        end
+
+        def validate_case_insensitive?
+          disallows_value_of(existing_value.swapcase, @expected_message)
+        end
+
+        def validate_case_sensitive?
+          if existing_value == existing_value.swapcase
+            fail NonCaseSwappableValueError.create(
+              model: @subject.class,
+              attribute: @attribute,
+              value: existing_value
+            )
+          end
+
+          allows_value_of(existing_value.swapcase, @expected_message)
         end
 
         def create_record_with_value
@@ -487,31 +494,29 @@ module Shoulda
         end
 
         def validate_after_scope_change?
-          if @options[:scopes].blank? || all_scopes_are_booleans?
-            true
-          else
-            @options[:scopes].all? do |scope|
-              previous_value = @all_records.map(&scope).compact.max
+          return true if @options[:scopes].blank? || all_scopes_are_booleans?
 
-              next_value =
-                if previous_value.blank?
-                  dummy_value_for(scope)
-                else
-                  next_value_for(scope, previous_value)
-                end
+          @options[:scopes].all? do |scope|
+            previous_value = @all_records.map(&scope).compact.max
 
-              @subject.__send__("#{scope}=", next_value)
-
-              if allows_value_of(existing_value, @expected_message)
-                @subject.__send__("#{scope}=", previous_value)
-
-                @failure_message_when_negated <<
-                  " (with different value of #{scope})"
-                true
+            next_value =
+              if previous_value.blank?
+                dummy_value_for(scope)
               else
-                @failure_message << " (with different value of #{scope})"
-                false
+                next_value_for(scope, previous_value)
               end
+
+            @subject.__send__("#{scope}=", next_value)
+
+            if allows_value_of(existing_value, @expected_message)
+              @subject.__send__("#{scope}=", previous_value)
+
+              @failure_message_when_negated <<
+                " (with different value of #{scope})"
+              true
+            else
+              @failure_message << " (with different value of #{scope})"
+              false
             end
           end
         end
